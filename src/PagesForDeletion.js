@@ -12,9 +12,21 @@ var pfd;
 if ( typeof pfd === 'undefined' ) {
 
 pfd = {};
+
+pfd.PREFIX_LENGTH = 32; // 'Wikipédia:Páginas para eliminar/'.length
+
 pfd.getUTCDate = function () {
 	var now = new Date();
 	return new Date(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+};
+
+pfd.shortTitle = function ( title ) {
+	return title.substr( pfd.PREFIX_LENGTH );
+};
+
+pfd.linksHtml = function ( pageTitle ) {
+	return '(<a href="' + mw.html.escape( mw.util.getUrl( pageTitle ) ) + '">ver</a>' +
+		'/<a href="' + mw.html.escape( mw.util.getUrl( pageTitle, { action: 'edit' } ) ) + '">editar</a>)';
 };
 
 pfd.generateTOC = function ( data ) {
@@ -22,14 +34,11 @@ pfd.generateTOC = function ( data ) {
 		toc = [];
 	for (i = 0, l = data.query.pageids.length; i < l; i++) {
 		page = data.query.pages[ data.query.pageids[i] ];
-		shortTitle = page.title.substr(32); // 'Wikipédia:Páginas para eliminar/'.length
+		shortTitle = pfd.shortTitle( page.title );
 		rev = page.revisions[0];
 		toc.push(
-			'<tr><td>'+
-			'<small>' +
-			'(<a href="' + mw.util.getUrl( page.title ) + '">ver</a>' +
-			'/<a href="' + mw.util.getUrl( page.title ) + '?action=edit">editar</a>) ' +
-			'</small>' +
+			'<tr><td>' +
+			'<small>' + pfd.linksHtml( page.title ) + ' </small>' +
 			'<a href="#' +
 			// Ver http://svn.wikimedia.org/viewvc/mediawiki/trunk/phase3/includes/Sanitizer.php?view=markup#l1056
 			// http://svn.wikimedia.org/viewvc/mediawiki/trunk/phase3/resources/mediawiki/mediawiki.util.js?view=markup#l114
@@ -61,41 +70,33 @@ pfd.getDataForTOC = function ( list ) {
 	} ).done( pfd.generateTOC );
 };
 
-pfd.show = function ( html ) {
-    var target;
+pfd.show = function ( html, title ) {
+	var $box = $( '<div class="pfd-proposal"></div>' )
+			.attr( 'data-title', title )
+			.html( html ),
+		$h;
 
-    pfd.$target.append( html );
-    $( '#toc' ).remove();
+	pfd.$target.append( $box );
+	$( '#toc' ).remove();
 
-    /* Inject edit links */
-    pfd.$target.find( 'h2, h3' ).each( function () {
-        var $h = $( this ),
-            $span = $h.find( 'span.mw-headline' ),
-            sectionText = $span.length ? $span.text() : $h.text(),
-            pageUrl, editUrl, $links;
+	$h = $box.find( 'h2, h3' ).first();
+	if ( $h.length && !$h.find( '.pfd-edit-links' ).length ) {
+		$h.append(
+			$( '<span class="pfd-edit-links"></span>' )
+				.css( { fontSize: '85%', fontWeight: 'normal', marginLeft: '0.5em' } )
+				.html( pfd.linksHtml( title ) )
+		);
+	}
 
-        if ( $h.find( '.pfd-edit-links' ).length ) return;
-
-        pageUrl = sectionText;
-        editUrl = sectionText + '?action=edit';
-
-        $links = $(
-            '<span class="pfd-edit-links" style="font-size:85%; font-weight:normal; margin-left:0.5em;">' +
-            '(<a href="' + pageUrl + '">ver</a>' +
-            '/<a href="' + editUrl + '">editar</a>)' +
-            '</span>'
-        );
-        $h.append( $links );
-    } );
-
-    /* Popups compatibility via hook */
-    mw.hook( 'wikipage.content' ).fire( pfd.$target );
+	/* Popups compatibility via hook */
+	mw.hook( 'wikipage.content' ).fire( pfd.$target );
 };
 
 pfd.parse = function ( titles ) {
+	var current;
 	pfd.$info.html(
 		'Consultando a proposta de eliminação da página "' +
-			titles[0].substr(32) + // 'Wikipédia:Páginas para eliminar/'.length === 32
+			pfd.shortTitle( titles[0] ) +
 			(titles.length === 1
 				? '" (não há mais páginas'
 				: '" (há ' + (titles.length - 1) +
@@ -105,10 +106,11 @@ pfd.parse = function ( titles ) {
 					)
 			) + ' na lista).'
 	);
+	current = titles.shift();
 	$.get(
 		// Do not use mw.util.getUrl until [[phab:T123062]] is fixed
 		mw.config.get( 'wgScript' ) + '?' + $.param( {
-			title: titles.shift(),
+			title: current,
 			action: 'render'
 		} ),
 		function ( pageHTML ) {
@@ -121,7 +123,7 @@ pfd.parse = function ( titles ) {
 			} else {
 				pfd.parse( titles );
 			}
-			pfd.show( pageHTML );
+			pfd.show( pageHTML, current );
 		}
 	);
 };
